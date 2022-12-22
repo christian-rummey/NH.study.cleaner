@@ -14,8 +14,9 @@ filename_list.all <- list.files(path = path, pattern = 'sas7bdat') %>%
 # neurological_exam - is a special case - should be done at BL, but has done many times at later visits
 
 crfs.exclude <- c('concl','conmed','currcond','icflog','random',
-                  'famed','facmstat','famp','screen',
-                  'sig')
+                  'famed','facmstat','famp','screen','pregoutc',
+                  'sig',
+                  'visstat')
 # 'concl.rds', 'conmed.rds', 'crcest.rds', 'currcond.rds', 'demo.rds',  
 # 'facmstat.rds', 'icflog.rds',
 # 'random.rds', 'sitexfer.rds', 'uid.rds',
@@ -109,7 +110,7 @@ mult.date.visits <- visit.dates %>%
 
 mult.date.visits %>% 
   arrange(-diff, sjid, avisitn) %>% 
-  .wds ('../DATA derived/visit.flags.FACOMS')
+  .wds ('../DATA derived/visit.flags.FACOMS', add.date = T)
 
 # quick summary -----------------------------------------------------------
 
@@ -121,7 +122,7 @@ mult.date.visits %>%
 
 # write -------------------------------------------------------------------
 
-visit.dates %>% 
+visit.dates %<>% 
   left_join(
     mult.date.visits %>% 
       ungroup %>% 
@@ -131,6 +132,8 @@ visit.dates %>%
       summarise_all( ~toString(na.omit( paste(.) )) )
   ) %>% 
   arrange(study, sjid, avisitn, adt) %>% 
-  select(study, sjid, avisit, avisitn, adt, n, diff, crf, everything()) %>% 
-  .wds('../DATA derived/visit.dates.FACOMS')			
+  select(study, sjid, avisit, avisitn, adt, n, diff, crf, everything())
+
+visit.dates %>% 
+  .wds('../DATA derived/visit.dates.FACOMS', add.date = T)			
 
