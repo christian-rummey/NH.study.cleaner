@@ -17,13 +17,6 @@ crfs.exclude <- c('concl','conmed','currcond','icflog','random',
                   'famed','facmstat','famp','screen','pregoutc',
                   'sig',
                   'visstat')
-# 'concl.rds', 'conmed.rds', 'crcest.rds', 'currcond.rds', 'demo.rds',  
-# 'facmstat.rds', 'icflog.rds',
-# 'random.rds', 'sitexfer.rds', 'uid.rds',
-# 'famed.rds', # creates multiple entries
-# 'famp.rds', 'screen.rds'
-# # 'screen','visstat','mortfa'
-# ) 
 
 filename_list <- filename_list.all[! filename_list.all %in% paste0(crfs.exclude)]
 
@@ -38,8 +31,10 @@ visit.dates <- .ds.FACOMS('faneuro') %>%
 for (i in 1:length(filename_list)){
   name   <- filename_list[i]
   ds.tmp <- .ds.FACOMS( name ) %>% 
-    filter( avisitn != '') 
-  if (nrow(ds.tmp)==0) {next}							 
+    filter(avisitn != '')
+	
+  if (nrow(ds.tmp)==0) {next}
+  
   if ( name %in% c(
     'faneuro',
     crfs.exclude
@@ -65,7 +60,6 @@ for (i in 1:length(filename_list)){
   }
   
   ds.tmp %<>% 
-    # select(sjid, avisitn, paramcd, adt) %>% 
     mutate(crf = name) %>% 
     select(sjid, avisit, avisitn, crf, adt)
   
@@ -109,7 +103,9 @@ mult.date.visits <- visit.dates %>%
 # write flags -------------------------------------------------------------
 
 mult.date.visits %>% 
-  arrange(-diff, sjid, avisitn) %>% 
+  ungroup %>% 
+  select(study, sjid, avisit, avisitn, adt, diff, flagged, n, crf) %>% 
+  arrange(sjid, avisitn) %>% 
   .wds ('../DATA derived/visit.flags.FACOMS', add.date = T)
 
 # quick summary -----------------------------------------------------------

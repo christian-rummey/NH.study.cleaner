@@ -29,7 +29,7 @@ for (i in 1:length(filename_list)){
   name   <- filename_list[i]
   ds.tmp <- .ds.FACHILD( name ) %>% 
     filter(avisitn != '')
-  
+	
   if (nrow(ds.tmp)==0) {next}
   
   if ( name %in% c(
@@ -38,6 +38,7 @@ for (i in 1:length(filename_list)){
   ) ) {next}
   
   if ( name == '_9hpt' ) { name <- 'nhpt'}
+
   
   ds.tmp %<>% 
     mutate(crf = name) %>% 
@@ -54,7 +55,7 @@ rm(ds.tmp, crfs.exclude, filename_list, filename_list.all, i, name, path)
 visit.dates %<>%
   arrange(sjid, crf, avisitn) %>% 
   mutate(study = 'FACHILD') %>%
-  select(study, sjid, avisitn, avisitn, everything())
+  select(study, sjid, avisit, avisitn, everything())
 
 # derive flags ------------------------------------------------------------
 
@@ -83,9 +84,9 @@ mult.date.visits <- visit.dates %>%
 # write flags -------------------------------------------------------------
 
 mult.date.visits %>% 
-  arrange(sjid, avisitn) %>% 
   ungroup %>% 
   select(study, sjid, avisit, avisitn, adt, diff, flagged, n, crf) %>% 
+  arrange(sjid, avisitn) %>% 
   .wds ('../DATA derived/visit.flags.FACHILD', add.date = T)
 
 # quick summary -----------------------------------------------------------
@@ -106,9 +107,8 @@ visit.dates %<>%
       unique %>%
       group_by(study, sjid, avisitn, diff, flagged) %>% 
       summarise_all( ~toString(na.omit( paste(.) )) )
-    ) %>% 
+  ) %>% 
   arrange(study, sjid, avisitn, adt) %>% 
-  # filter(!is.na(flagged))
   select(study, sjid, avisit, avisitn, adt, n, diff, crf, everything())
 
 visit.dates %>% 
