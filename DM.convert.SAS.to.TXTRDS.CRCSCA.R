@@ -4,13 +4,12 @@
 #' author: "Christian"
 #' date: "`r format(Sys.time(), '%B %d, %Y')`"
 #' ---
-# 2020-07-15 
 
 # setup -------------------------------------------------------------------
 rm(list = ls())
 library(haven)
 
-path     <- '../DATA/CRCSCA/20221206/sasv9/'
+path     <- '../DATA/CRCSCA/20230301/sasv9/'
 path.out <- '../DATA/CRCSCA/current/'
 
 # load all datasets -------------------------------------------------------

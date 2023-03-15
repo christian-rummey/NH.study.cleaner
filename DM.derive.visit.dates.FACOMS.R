@@ -10,7 +10,7 @@ path <- '../DATA/FACOMS/current/'
 filename_list.all <- list.files(path = path, pattern = 'sas7bdat') %>% 
   gsub('.sas7bdat','',.)
 
-# non of these should have a patient-visit scheme
+# none of these should have a patient-visit scheme
 # neurological_exam - is a special case - should be done at BL, but has done many times at later visits
 
 crfs.exclude <- c('concl','conmed','currcond','icflog','random',
@@ -64,7 +64,7 @@ for (i in 1:length(filename_list)){
     select(sjid, avisit, avisitn, crf, adt)
   
   cat(name);cat("\n")
-  # assign(name, ds.tmp)
+  
   visit.dates %<>%
     bind_rows(ds.tmp)
 }

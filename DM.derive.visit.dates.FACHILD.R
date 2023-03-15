@@ -15,6 +15,7 @@ filename_list.all <- list.files(path = path, pattern = 'sas7bdat') %>%
 
 crfs.exclude <- c('concl','conmed','currcond','icflog','random',
                   'famed','facmstat',
+                  'invsig', #has not hpf, fpf
                   'visstat')
 
 filename_list <- filename_list.all[! filename_list.all %in% paste0(crfs.exclude)]
@@ -23,7 +24,7 @@ filename_list <- filename_list.all[! filename_list.all %in% paste0(crfs.exclude)
 
 visit.dates <- .ds.FACHILD('faneuro') %>% 
   mutate(crf = 'faneuro') %>% 
-  select(sjid, avisit, avisitn, crf, adt)
+  select(sjid, avisit, avisitn, hpf, fpf, crf, adt)
 
 for (i in 1:length(filename_list)){
   name   <- filename_list[i]
@@ -42,7 +43,7 @@ for (i in 1:length(filename_list)){
   
   ds.tmp %<>% 
     mutate(crf = name) %>% 
-    select(sjid, avisit, avisitn, crf, adt)
+    select(sjid, avisit, avisitn, crf, adt, hpf, fpf)
   
   cat(name);cat("\n")
   # assign(name, ds.tmp)
@@ -64,6 +65,7 @@ crf.list <- unique(visit.dates$crf)
 # summarise CRFs ----------------------------------------------------------
 
 crf.summary <- visit.dates %>%
+  select(-hpf, -fpf) %>% 
   group_by(sjid, avisit, avisitn, adt) %>%
   mutate(n = n()) %>% 
   group_by(study, sjid, avisit, avisitn, adt, n) %>%
@@ -72,7 +74,7 @@ crf.summary <- visit.dates %>%
 # select double ages only -------------------------------------------------
 
 mult.date.visits <- visit.dates %>% 
-  select(-crf) %>% 
+  select(-crf, -hpf, -fpf) %>% 
   group_by(study, sjid, avisit, avisitn) %>% 
   unique() %>% 
   filter(n()>1) %>%
