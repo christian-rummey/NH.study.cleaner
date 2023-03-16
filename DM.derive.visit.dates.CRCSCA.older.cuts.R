@@ -3,7 +3,7 @@
 
 rm(list = ls())
 
-path <- '../DATA/CRCSCA/current/'
+path <- '../DATA/CRCSCA/202202/'
 
 # datasets ----------------------------------------------------------------
 
@@ -26,17 +26,54 @@ filename_list <- filename_list.all[! filename_list.all %in% paste0(crfs.exclude)
 
 # sara is base (although not longest dt) ----------------------------------
 
-# visit.dates <- .ds.CRCSCA('sara', all = T) %>% 
-#   select(sjid, avisit, avisitn, age = visit_age, year = visityear) %>% # cannot match based on year, as it will be different
-#   filter(avisit != 'PRN') %>% 
-#   mutate(crf = 'sara') %>% 
-#   select(sjid, avisit, avisitn, crf, age)
+registration <- readRDS(paste0(path, 'registration.rds'))
+
+.ds.CRCSCA.old <- function( ds, path, all = F ) {
+  
+  ds <- readRDS(paste( path, ds , '.rds', sep = ''))
+  
+  names(ds) <- tolower(names(ds))
+  
+  if ( 'visit' %in% names(ds) ) {
+    ds %<>%
+      rename( visit = visit )
+  } else {
+    ds %<>%
+      select( -dmcc_record_id, -form_name )
+  }
+  
+  ds %<>% 
+    mutate( study = 'CRCSCA') %>% 
+    left_join(registration) %>% 
+    mutate_at('maskid', ~as.character(.)) %>% 
+    mutate ( age = visit_age/365.25 ) %>% #select( -visit_age ) %>% 
+    mutate ( age_bl = start_age/365.25 ) %>% 
+    mutate ( adt = as.Date(visit_age-start_age, origin= as.Date('2000-01-01') )) %>%
+    arrange(study, maskid, visit_age) %>% 
+    mutate ( visit = factor(visit, c("Screening", "Baseline", "6 months", "12 months", "18 months", "24 months", "36 months", "48 months", 
+                                     "60 months", "72 months", "84 months", "96 months", "108 months", "120 months","132 months", "144 months",
+                                     "192 months", "PRN"))) %>% 
+    mutate( avisitn = gsub('Screening','-1', gsub('Baseline','0', gsub(' months', '', gsub('PRN', NA, visit)) ))) %>%
+    mutate( avisitn = as.numeric(avisitn)/12 ) %>% 
+    select ( study, sjid = maskid, avisit = visit, avisitn, age, start_age, visit_age, visit, everything()) %>% 
+    droplevels()
+  
+  if ( all == F ) {
+    ds %<>%
+      filter( !(avisitn %in% c(0.5, 1.5)) )
+  }
+  
+  ds %<>% 
+    arrange(sjid, avisitn)
+  
+  return ( ds )
+}
 
 visit.dates <- data.frame()
 
 for (i in 1:length(filename_list)){
   name   <- filename_list[i]
-  ds.tmp <- .ds.CRCSCA( name ) %>% 
+  ds.tmp <- .ds.CRCSCA.old( path, name ) %>% 
     filter(avisit != 'PRN') 
   
   if ( !('sjid'   %in% names(ds.tmp) ) ) {next}
@@ -92,7 +129,7 @@ mult.date.visits %>%
   ungroup %>% 
   select(study, sjid, avisit, avisitn, age, diff, flagged, n, crf) %>% 
   arrange(sjid, avisitn, age) %>% 
-  .wds ('../DATA derived/CRCSCA.flag.mult.visit', add.date = T)
+  .wds ('../DATA derived/CRCSCA.flag.mult.visit.old.202202', add.date = T)
 
 # quick summary -----------------------------------------------------------
 
@@ -155,7 +192,7 @@ age.devs.by.visit %>%
   ungroup %>% 
   select(study, sjid, avisit, avisitn, crf, age.dev, flag.window) %>% 
   arrange(sjid, avisitn, crf) %>% 
-  .wds ('../DATA derived/CRCSCA.flag.age.off', add.date = T)
+  .wds ('../DATA derived/CRCSCA.flag.age.off.old.202202', add.date = T)
 
 # write -------------------------------------------------------------------
 
@@ -173,5 +210,5 @@ visit.dates %<>%
 
 visit.dates %>% 
   arrange(sjid, avisitn, age) %>% 
-  .wds('../DATA derived/CRCSCA.visit.dates', add.date = T)			
+  .wds('../DATA derived/CRCSCA.visit.dates.old.202202', add.date = T)			
 

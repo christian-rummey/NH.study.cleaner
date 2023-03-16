@@ -9,8 +9,10 @@
 rm(list = ls())
 library(haven)
 
-path     <- '../DATA/CRCSCA/20230301/sasv9/'
-path.out <- '../DATA/CRCSCA/current/'
+# path     <- '../DATA/CRCSCA/20230301/sasv9/'
+# path.out <- '../DATA/CRCSCA/current/'
+path     <- '../DATA/CRCSCA/202202/sasv9/'
+path.out <- '../DATA/CRCSCA/202202/'
 
 # load all datasets -------------------------------------------------------
 
