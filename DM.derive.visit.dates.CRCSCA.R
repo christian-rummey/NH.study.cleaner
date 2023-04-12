@@ -32,7 +32,7 @@ filename_list <- filename_list.all[! filename_list.all %in% paste0(crfs.exclude)
 #   mutate(crf = 'sara') %>% 
 #   select(sjid, avisit, avisitn, crf, age)
 
-visit.dates <- data.frame()
+visit.dates <- data.frame() %>% as_tibble()
 
 for (i in 1:length(filename_list)){
   name   <- filename_list[i]
@@ -51,7 +51,7 @@ for (i in 1:length(filename_list)){
   ds.tmp %<>% 
     select(sjid, avisit, avisitn, age = visit_age, year = visityear) %>% 
     mutate(crf = name) %>% 
-    select(sjid, avisit, avisitn, crf, age)
+    select(sjid, avisit, avisitn, crf, year, age)
   
   cat(name);cat("\n")
   
@@ -109,6 +109,7 @@ bl.ages <- visit.dates %>%
 
 # add age deviation in days -----------------------------------------------
 # done by crf 
+# these are not discrepancies between CRFs, but visit window deviations!
 
 age.devs.by.visit <- visit.dates %>%
   left_join(bl.ages) %>%
