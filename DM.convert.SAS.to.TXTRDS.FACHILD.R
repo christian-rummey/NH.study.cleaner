@@ -1,6 +1,6 @@
 # -------------------------------------------------------------------------
 #' ---
-#' title: "DM.convert.SAS.to.TXTRDS.CRCSCA.R"
+#' title: "DM.convert.SAS.to.TXTRDS.FACHILD.R"
 #' author: "Christian"
 #' date: "`r format(Sys.time(), '%B %d, %Y')`"
 #' ---
@@ -9,20 +9,8 @@
 rm(list = ls())
 library(haven)
 
-# path     <- '../DATA/CRCSCA/20230802/sasv9/'
-# path.out <- '../DATA/CRCSCA/20230802/'
-# path     <- '../DATA/CRCSCA/20230301/sasv9/'
-# path.out <- '../DATA/CRCSCA/20230301/'
-# path     <- '../DATA/CRCSCA/20230109/sasv9/'
-# path.out <- '../DATA/CRCSCA/20230109/'
-# path     <- '../DATA/CRCSCA/202202/sasv9/'
-# path.out <- '../DATA/CRCSCA/202202/'
-# path     <- '../DATA/CRCSCA/20240117/sasv9/'
-# path     <- '../DATA/CRCSCA/20240427/'
-# path     <- '../DATA/CRCSCA/20241031/'
-path     <- '../DATA/CRCSCA/20250125/'
-path.out <- '../DATA/CRCSCA/current/'
-
+path     <- '../DATA/FACHILD/2023-03-01/'
+path.out <- '../DATA/FACHILD/current/'
 
 # load all datasets -------------------------------------------------------
 
@@ -36,11 +24,6 @@ for (i in 1:length(file_list)){
   
   name   <- print(str_replace(file_list[i], pattern = "sas7bdat", replacement = ""))
   assign(name, ds.tmp)
-  
-  # ifelse ( name != 'trtment' ) {
-  #   ds %>% 
-  #     select(-studyid, -usubjid)
-  # }
   
   saveRDS(ds.tmp, paste(path.out, name, 'rds', sep=''))
   .wt    (ds.tmp, paste(path.out, name, 'txt', sep=''))

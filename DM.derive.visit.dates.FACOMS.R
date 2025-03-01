@@ -13,10 +13,12 @@ filename_list.all <- list.files(path = path, pattern = 'sas7bdat') %>%
 # none of these should have a patient-visit scheme
 # neurological_exam - is a special case - should be done at BL, but has done many times at later visits
 
-crfs.exclude <- c('concl','conmed','currcond','icflog','random',
-                  'famed','facmstat','famp','screen','pregoutc',
-                  'sig',
-                  'visstat')
+crfs.exclude <- c(
+  'concl','conmed','currcond','icflog','random',
+  'famed','facmstat','famp','screen','pregoutc',
+  'sig',
+  'visstat',
+  'mhcnsnsus')
 
 filename_list <- filename_list.all[! filename_list.all %in% paste0(crfs.exclude)]
 

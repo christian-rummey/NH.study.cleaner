@@ -3,50 +3,56 @@
 
 rm(list = ls())
 
-path <- '../DATA/FACHILD/current/'
-
+path <- '../DATA/UNIFAI/current/'
+# path <-'../DATA/EFACTS/2022-07-06 export8/'
 # datasets ----------------------------------------------------------------
 
-filename_list.all <- list.files(path = path, pattern = 'sas7bdat') %>% 
-  gsub('.sas7bdat','',.)
+filename_list.all <- list.files(path = path, pattern = 'txt') %>%
+  .[!grepl('_codes', .)] %>% 
+  gsub('.txt','',.)
 
-# non of these should have a patient-visit scheme
+# none of these should have a patient-visit scheme
 # neurological_exam - is a special case - should be done at BL, but has done many times at later visits
 
-crfs.exclude <- c('concl','conmed','currcond','icflog','random',
-                  'famed','facmstat',
-                  'invsig', #has not hpf, fpf
-                  'visstat')
+crfs.exclude <- as.list(
+  c( 'TimeZone','AE', 'MH', 'SCO',
+    # ,'ADL','CE','CCFS','DM','EQ5D','FACHSC','FAH','FAHISCR','FA-HI','FA','FACR-HI','MFIS',
+    # 'MFISP','P_ADL','P_EQ5D','P_FA-HI','P_SF10','PFACR','RSCR', 'SEF','SF10','SF10SC','SF36','SF36P','VF','VFQ','VFQP',
+    'mfar'
+  # 'concl','conmed','currcond','icflog','random',
+  # 'famed','facmstat','famp','screen','pregoutc',
+  # 'sig',
+  # 'visstat',
+  # 'mhcnsnsus'
+  ))
+
 
 filename_list <- filename_list.all[! filename_list.all %in% paste0(crfs.exclude)]
 
 # sara is base (although not longest dt) ----------------------------------
 
-visit.dates <- .ds.FACHILD('faneuro') %>% 
-  mutate(crf = 'faneuro') %>% 
-  select(sjid, avisit, avisitn, hpf, fpf, crf, adt)
+visit.dates <- .ds.UNIFAI('mfar') %>% 
+  mutate(crf = 'fars') %>% 
+  select(study, sjid, avisit, avisitn, crf, adt)
+
+# file_list <- file_list[c(22,23)]
 
 for (i in 1:length(filename_list)){
   name   <- filename_list[i]
-  ds.tmp <- .ds.FACHILD( name ) %>% 
-    filter(avisitn != '')
-	
-  if (nrow(ds.tmp)==0) {next}
-  
-  if ( name %in% c(
-    'faneuro',
-    crfs.exclude
-  ) ) {next}
-  
-  if ( name == '_9hpt' ) { name <- 'nhpt'}
-
-  
-  ds.tmp %<>% 
-    mutate(crf = name) %>% 
-    select(sjid, avisit, avisitn, crf, adt, hpf, fpf)
   
   cat(name);cat("\n")
-  # assign(name, ds.tmp)
+  
+  ds.tmp <- .ds.UNIFAI( name ) %>% 
+    filter(avisitn != '')
+  
+  if (nrow(ds.tmp)==0) {next}
+
+  ds.tmp %<>% 
+    mutate(crf = name) %>% 
+    select(study, sjid, avisit, avisitn, crf, adt)
+  
+  # cat(name);cat("\n")
+  
   visit.dates %<>%
     bind_rows(ds.tmp)
 }
@@ -55,7 +61,7 @@ rm(ds.tmp, crfs.exclude, filename_list, filename_list.all, i, name, path)
 
 visit.dates %<>%
   arrange(sjid, crf, avisitn) %>% 
-  mutate(study = 'FACHILD') %>%
+  mutate(study = 'UNIFAI') %>%
   select(study, sjid, avisit, avisitn, everything())
 
 # derive flags ------------------------------------------------------------
@@ -65,7 +71,6 @@ crf.list <- unique(visit.dates$crf)
 # summarise CRFs ----------------------------------------------------------
 
 crf.summary <- visit.dates %>%
-  select(-hpf, -fpf) %>% 
   group_by(sjid, avisit, avisitn, adt) %>%
   mutate(n = n()) %>% 
   group_by(study, sjid, avisit, avisitn, adt, n) %>%
@@ -74,7 +79,7 @@ crf.summary <- visit.dates %>%
 # select double ages only -------------------------------------------------
 
 mult.date.visits <- visit.dates %>% 
-  select(-crf, -hpf, -fpf) %>% 
+  select(-crf) %>% 
   group_by(study, sjid, avisit, avisitn) %>% 
   unique() %>% 
   filter(n()>1) %>%
@@ -89,14 +94,14 @@ mult.date.visits %>%
   ungroup %>% 
   select(study, sjid, avisit, avisitn, adt, diff, flagged, n, crf) %>% 
   arrange(sjid, avisitn) %>% 
-  .wds ('../DATA derived/visit.flags.FACHILD', add.date = T)
+  .wds ('../DATA derived/visit.flags.UNIFAI', add.date = T)
 
 # quick summary -----------------------------------------------------------
 
 mult.date.visits %>% 
   select(sjid, avisitn, diff) %>% 
   unique %>%
-  group_by(six.months = cut(diff, c(0,31,90,180,3000))) %>% 
+  group_by(six.months = cut(diff, c(0,31,90,180,1000,2000,3000,1000000000000000000))) %>% 
   summarise(n())
 
 # write -------------------------------------------------------------------
@@ -114,22 +119,5 @@ visit.dates %<>%
   select(study, sjid, avisit, avisitn, adt, n, diff, crf, everything())
 
 visit.dates %>% 
-  .wds('../DATA derived/visit.dates.FACHILD', add.date = T)			
+  .wds('../DATA derived/visit.dates.UNIFAI', add.date = T)			
 
-# stats on virtual visits -------------------------------------------------
-
-visit.dates %>% 
-  # filter(crf == 'faneuro') %>% 
-  select(study, sjid, avisit, hpf) %>% 
-  unique %>% 
-  group_by(study, sjid, avisit) %>% 
-  summarise_all( ~toString(na.omit( paste(.) )) ) %>% 
-  .ct
-
-# 556/648 performed
-# 80 at least partially virtual
-# 7 partially virtual
-# 
-# 73 virtual
-# 7/556
-# 73/556

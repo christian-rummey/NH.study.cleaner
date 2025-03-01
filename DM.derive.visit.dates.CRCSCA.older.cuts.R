@@ -3,7 +3,8 @@
 
 rm(list = ls())
 
-path <- '../DATA/CRCSCA/202202/'
+# path <- '../DATA/CRCSCA/202202/'
+path <- '../DATA/CRCSCA/20221118/'
 
 # datasets ----------------------------------------------------------------
 
@@ -73,7 +74,7 @@ visit.dates <- data.frame()
 
 for (i in 1:length(filename_list)){
   name   <- filename_list[i]
-  ds.tmp <- .ds.CRCSCA.old( path, name ) %>% 
+  ds.tmp <- .ds.CRCSCA.old( name, path  ) %>% 
     filter(avisit != 'PRN') 
   
   if ( !('sjid'   %in% names(ds.tmp) ) ) {next}
@@ -86,7 +87,7 @@ for (i in 1:length(filename_list)){
   if ( name == '_9hpt' ) { name <- 'nhpt'}
   
   ds.tmp %<>% 
-    select(sjid, avisit, avisitn, age = visit_age, year = visityear) %>% 
+    select(sjid, avisit, avisitn, age = visit_age ) %>% 
     mutate(crf = name) %>% 
     select(sjid, avisit, avisitn, crf, age)
   
@@ -129,7 +130,7 @@ mult.date.visits %>%
   ungroup %>% 
   select(study, sjid, avisit, avisitn, age, diff, flagged, n, crf) %>% 
   arrange(sjid, avisitn, age) %>% 
-  .wds ('../DATA derived/CRCSCA.flag.mult.visit.old.202202', add.date = T)
+  .wds ('../DATA derived/CRCSCA.flag.mult.visit.old.202211', add.date = T)
 
 # quick summary -----------------------------------------------------------
 
@@ -192,7 +193,7 @@ age.devs.by.visit %>%
   ungroup %>% 
   select(study, sjid, avisit, avisitn, crf, age.dev, flag.window) %>% 
   arrange(sjid, avisitn, crf) %>% 
-  .wds ('../DATA derived/CRCSCA.flag.age.off.old.202202', add.date = T)
+  .wds ('../DATA derived/CRCSCA.flag.age.off.old.202211', add.date = T)
 
 # write -------------------------------------------------------------------
 
@@ -210,5 +211,5 @@ visit.dates %<>%
 
 visit.dates %>% 
   arrange(sjid, avisitn, age) %>% 
-  .wds('../DATA derived/CRCSCA.visit.dates.old.202202', add.date = T)			
+  .wds('../DATA derived/CRCSCA.visit.dates.old.202211', add.date = T)			
 
