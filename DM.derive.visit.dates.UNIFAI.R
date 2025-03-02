@@ -49,8 +49,18 @@ for (i in 1:length(filename_list)){
 
   ds.tmp %<>% 
     mutate(crf = name) %>% 
-    select(study, sjid, avisit, avisitn, crf, adt)
+    select(study, sjid, avisit, avisitn, crf, adt) %>% 
+    unique()
   
+  rows.dup.adts <- ds.tmp %>%
+    group_by(study, sjid, avisit, avisitn, crf, adt) %>% 
+    filter(n()>1) %>% 
+    nrow()
+  
+  if (rows.dup.adts>0) {
+    print('!!! has duplicate adts per crf')
+    next}
+
   # cat(name);cat("\n")
   
   visit.dates %<>%
@@ -117,6 +127,8 @@ visit.dates %<>%
   ) %>% 
   arrange(study, sjid, avisitn, adt) %>% 
   select(study, sjid, avisit, avisitn, adt, n, diff, crf, everything())
+
+visit.dates
 
 visit.dates %>% 
   .wds('../DATA derived/visit.dates.UNIFAI', add.date = T)			
