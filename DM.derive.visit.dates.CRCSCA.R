@@ -5,6 +5,29 @@ rm(list = ls())
 
 path <- '../DATA/CRCSCA/current/'
 
+# CRCSCA get ages and starting dates --------------------------------------
+
+reg. <- readRDS ('../DATA/CRCSCA/current/registration.rds') %>% 
+  select( sjid = local_id, start_age, registration_age ) %>%
+  .gs
+
+dem. <- readRDS ('../DATA/CRCSCA/current/demographics.rds') %>% 
+  select( sjid = local_id, ageatregistration, dm.date = visit_date ) %>% 
+  unique() %>% 
+  .gs
+
+# start ages,  April 4th
+ages.CRCSCA <- reg. %>% 
+  left_join(dem.) %>%
+  slice(1) %>% # removes one dup
+  arrange( start_age ) %>% # 117 have none
+  mutate ( start_age   = ifelse( is.na(start_age), registration_age, start_age  ) ) %>% # to 111
+  mutate ( dm.age.used = ifelse( is.na(start_age), dm.date, NA        ) ) %>% # 
+  mutate ( start_age   = ifelse( is.na(start_age), ageatregistration, start_age ) ) %>% # to 35, but keep date
+  filter ( start_age > 1) %>% # removes these 35
+  select ( sjid, start_age, dm.age.used ) %>% 
+  mutate ( dm.age.used = as.Date(dm.age.used, '%m/%d/%Y'))
+
 # datasets ----------------------------------------------------------------
 
 filename_list.all <- list.files(path = path, pattern = 'rds') %>% 
@@ -14,6 +37,7 @@ filename_list.all <- list.files(path = path, pattern = 'rds') %>%
 # neurological_exam - is a special case - should be done at BL, but has done many times at later visits
 
 crfs.exclude <- c(
+  # 'ccas','cnrs',
   'age_at_onset','conclusionofstudyparticipation','dsn_names7301','registration','general_physical_exam',
   'covid_19_visit_impact_form', 'deathrecord','eligibility','genetic_results',
   'physician_global_impression','patient_global_impression','concomitant_meds','demographics',
@@ -25,11 +49,13 @@ crfs.exclude <- c(
 
 filename_list <- filename_list.all[! filename_list.all %in% paste0(crfs.exclude)]					 
 
+# filename_list <- filename_list[c(1,2,3,4)]
+
 visit.dates <- data.frame() %>% as_tibble()
 
 for (i in 1:length(filename_list)){
   name   <- filename_list[i]
-  ds.tmp <- .rd.CRCSCA( name, all = T ) %>% 
+  ds.tmp <- .ds.CRCSCA( name, all = T, raw = T ) %>% 
     filter(avisit != 'PRN') 
   
   if ( !('sjid'   %in% names(ds.tmp) ) ) {next}
@@ -58,44 +84,146 @@ visit.dates %<>%
   mutate(study = 'CRCSCA') %>%
   select(study, sjid, avisit, avisitn, everything())
 
-# derive flags ---------------------------------------------------------------
 
-crf.summary <- visit.dates %>%
-  group_by(sjid, avisit, avisitn, adt) %>%
-  mutate(n = n()) %>% 
-  group_by(study, sjid, adt) %>% select(-c(avisit, avisitn, n)) %>%
-  # group_by(study, sjid, avisitn) %>% select(-c(adt, avisitn)) %>% 
-  # group_by(study, sjid, adt, avisit, avisitn, n) %>%
-  summarise_all( ~toString(na.omit(.)) )
+# add age and remove no-age-pts -------------------------------------------------------
 
-crf.summary.sara <- visit.dates %>%
-  filter(crf == 'sara') %>% 
-  group_by(sjid, avisit, avisitn, adt) %>%
-  mutate(n = n()) %>% 
-  group_by(study, sjid, adt) %>% select(-c(avisit, avisitn, n)) %>%
-  # group_by(study, sjid, avisitn) %>% select(-c(adt, avisitn)) %>% 
-  # group_by(study, sjid, adt, avisit, avisitn, n) %>%
-  summarise_all( ~toString(na.omit(.)) )
+visit.dates %<>% 
+  .gs %>% 
+  # filter(is.na(adt))
+  inner_join( ages.CRCSCA ) %>% 
+  # filter   ( !is.na(dm.age.used)) %>%     
+  filter   ( !is.na(start_age) ) %>%       # 
+  rename (age_bl = start_age)
+
+visit.dates %<>% 
+  .gs %>% 
+  mutate( time. = as.numeric( adt -min(adt) ) / 365.25 ) %>% 
+  mutate( age   = age_bl + time. ) %>% 
+  # filter( is.na(age)) %>% 
+  droplevels()
+
+visit.dates %<>% 
+  select(-dm.age.used)
+
+# clean -------------------------------------------------------------------
+
+# remove double entry
+visit.dates %<>% 
+  group_by( study, sjid, avisitn, adt, crf) %>% 
+  # filter(n()>1) %>% 
+  slice(1)
+
+# remove double entry, wrong date (1)
+visit.dates %<>% 
+  group_by( study, sjid, avisitn, crf ) %>% 
+  # filter(n()>1)
+  slice(1)
+
+# if multiple dates per visit, use the one with most crfs -----------------
+
+# visit.dates.unique <- 
+visit.dates %<>% 
+  group_by ( study, sjid, avisitn ) %>% 
+  # filter   ( length(unique(adt))>1 ) %>% 
+  group_by ( study, sjid, avisitn, adt ) %>% 
+  summarise( n.crf_date = length (unique(crf))) %>% 
+  group_by ( study, sjid, avisitn ) %>% 
+  # will return the first row in the current data order among those with 
+  # the maximum value.
+  arrange( study, sjid, avisitn, n.crf_date ) %>% 
+  slice_max(n.crf_date, with_ties = FALSE) %>% 
+  select(-n.crf_date)
+
+
+# check <- visit.dates %>% 
+#   # filter(sjid == 'HA-01-097-7301') %>% 
+#   group_by(study, sjid, avisitn) %>% 
+#   mutate( adts_vis = length(unique(adt)) ) %>% 
+#   .gs %>% 
+#   # filter( max (adts_vis) > 1) %>% 
+#   left_join( 
+#     visit.dates.clean %>% 
+#       mutate(visit.clean = T) %>% 
+#       rename(adt.clean = adt)
+#     ) %>% 
+#   mutate( adt.old = adt ) %>% 
+#   mutate( adt = adt.clean ) %>% 
+#   .gsv() %>% 
+#   mutate( adt = mean(adt),na.rm=T)
+
+
+# check %<>% 
+#   group_by( sjid, crf ) %>% 
+#   arrange ( sjid, crf, avisitn) %>% 
+#   mutate( lag.avisitn = avisitn - lag (avisitn) ) %>% 
+#   mutate( lag.adt     = as.numeric(adt     - lag (adt) ) ) 
+# 
+# check %>%
+#   # filter( avisitn > 0 ) %>% 
+#   filter( min (lag.adt) < 0) %>% 
+#   print()
+# 
+# 
+# check %<>% 
+#   .gsv %>% 
+#   mutate(diff = adt.old - adt ) %>% 
+#   .gs %>% 
+#   mutate(diff = max(diff)) %>% 
+#   filter(diff >0 )
+# 
+# check %>% 
+#   select(sjid, avisitn, crf, diff, adt, adt.old) %>%
+#   mutate( adt.old = if_else(adt == adt.old, NA, adt.old) ) %>% 
+#   gather( dates, values, adt, adt.old) %>% 
+#   filter( !is.na(values)) %>% 
+#   filter(diff > 10, diff<60) %>% 
+#   mutate(flag = ifelse(is.na(diff), NA, T )) %>% 
+#   # print(n=80)
+#   ggplot()+geom_point()+geom_line()+
+#   aes(x = values)+aes(y = avisitn)+
+#   aes(color = dates)+
+#   facet_wrap(~sjid)
+
+
+# consider taking mean if < 30days
+# 1) make sure it is reproducible - ok
+# 2) check that at least dates  are increasint  with visit
+# 3) need to recalc ages , etc, then take care of sjids. 
+
 
 # multiple ages (now dates) only ------------------------------------------------------
 
-mult.date.visits <- visit.dates %>% 
-  select(-crf) %>%
-  group_by(study, sjid, adt) %>%
-  unique() %>% 
-  mutate(avisit.n = length(avisit), adt.n = length(adt), avisitn.n = length(avisitn)) %>% 
-  ungroup %>%
-  filter( rowSums(.[c('avisit.n', 'adt.n', 'avisitn.n')]) > 3 )
+# mult.date.visits <- visit.dates %>% 
+#   select(-crf) %>%
+#   group_by(study, sjid, adt) %>%
+#   unique() %>% 
+#   mutate(avisit.n = length(avisit), adt.n = length(adt), avisitn.n = length(avisitn)) %>% 
+#   ungroup %>%
+#   filter( rowSums(.[c('avisit.n', 'adt.n', 'avisitn.n')]) > 3 )
+# 
+# mult.date.visits %>% select(study, sjid, avisit) %>% unique %>% nrow
+# mult.date.visits %>% select(study, sjid, adt) %>% unique %>% nrow
+# 
+# mult.date.visits$avisit.n
+# 
+# mult.date.visits %>% 
+#   group_by(study, sjid, avisit) %>% 
+#   summarise(diff.adt = as.numeric(max(adt)-min(adt))) %>% 
+#   filter (diff.adt > 0)
+# 
+# mult.date.visits %>% 
+#   group_by(study, sjid, adt) %>% 
+#   mutate( diff.visit = as.numeric(max(avisitn)-min(avisitn))) %>% 
+#   filter   ( diff.visit > 0) %>% 
+#   arrange  ( -diff.visit, sjid, avisitn )
+# 
+# visit.dates %>% 
+#   filter( sjid == 'CU-01-048-7301' ) %>% 
+#   group_by(sjid, avisitn, avisit, adt) %>% 
+#   summarise( crf = toString(na.omit(crf)) )
+#   select( -crf ) %>% unique %>% 
+#   arrange( avisitn, adt)
 
-mult.date.visits %>% select(study, sjid, avisit) %>% unique %>% nrow
-mult.date.visits %>% select(study, sjid, adt) %>% unique %>% nrow
-
-mult.date.visits$avisit.n
-
-mult.date.visits %>% 
-  group_by(study, sjid, avisit) %>% 
-  summarise(diff = as.numeric(max(adt)-min(adt))) %>% 
-  filter(diff > 0)
 
 # mult.date.visits %>% 
 #   unique() %>% 
@@ -188,23 +316,35 @@ mult.date.visits %>%
 
 # write -------------------------------------------------------------------
 
-mult.visit.per.adt <- visit.dates %>% 
-  # filter(sjid == 'CU-01-039-7301', adt == '2020-09-01') %>%
-  ungroup %>% 
-  select(-avisitn) %>% 
-  group_by(study, sjid, avisit, adt) %>% 
-  summarise_all( ~toString(na.omit( paste(.) )) ) %>%
+# this only shows that some dates spread over differebt avisitns
+visit.dates %>% 
+  group_by(study, sjid, avisitn, adt) %>% 
+  summarise_all( ~toString(na.omit( paste(unique(.)) )) ) %>%
   group_by(study, sjid, adt) %>% 
   unique %>%
   filter(n()>1)
+
+
+# mult.visit.per.adt <- visit.dates %>% 
+#   # filter(sjid == 'CU-01-039-7301', adt == '2020-09-01') %>%
+#   ungroup %>% 
+#   select(-avisitn) %>% 
+#   group_by(study, sjid, avisit, adt) %>% 
+#   summarise_all( ~toString(na.omit( paste(.) )) ) %>%
+#   group_by(study, sjid, adt) %>% 
+#   unique %>%
+#   filter(n()>1)
 # %>% 
 #   group_by(study, sjid, adt) %>% 
 #   group_by(study, sjid, adt) %>% 
 #   filter(n()>1) %>% 
 #   arrange(study, sjid, adt)
-mult.visit.per.adt %>% 
-  arrange(adt, sjid) %>% 
-  .ct
+
+# mult.visit.per.adt %>% 
+#   arrange(adt, sjid) %>% 
+#   .ct
+
+
 
 visit.dates %>% 
   arrange(sjid, avisitn, adt) %>% 
