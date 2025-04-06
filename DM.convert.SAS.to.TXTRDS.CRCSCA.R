@@ -20,7 +20,7 @@ library(haven)
 # path     <- '../DATA/CRCSCA/20240117/sasv9/'
 # path     <- '../DATA/CRCSCA/20240427/'
 # path     <- '../DATA/CRCSCA/20241031/'
-path     <- '../DATA/CRCSCA/20250125/'
+path     <- '../DATA/CRCSCA/20250401/'
 path.out <- '../DATA/CRCSCA/current/'
 
 
