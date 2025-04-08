@@ -7,12 +7,11 @@ path <- '../DATA/CRCSCA/current/'
 
 # CRCSCA get ages and starting dates --------------------------------------
 
-reg. <- readRDS ('../DATA/CRCSCA/current/registration.rds') %>% 
-  select( sjid = local_id, start_age, registration_age ) %>%
+reg. <- .ds.CRCSCA('registration') %>% 
   .gs
 
-dem. <- readRDS ('../DATA/CRCSCA/current/demographics.rds') %>% 
-  select( sjid = local_id, ageatregistration, dm.date = visit_date ) %>% 
+dem. <- .ds.CRCSCA('demographics') %>% 
+  select( sjid, ageatregistration, dm.date = visit_date ) %>% 
   unique() %>% 
   .gs
 
@@ -25,7 +24,7 @@ ages.CRCSCA <- reg. %>%
   mutate ( dm.age.used = ifelse( is.na(start_age), dm.date, NA        ) ) %>% # 
   mutate ( start_age   = ifelse( is.na(start_age), ageatregistration, start_age ) ) %>% # to 35, but keep date
   filter ( start_age > 1) %>% # removes these 35
-  select ( sjid, start_age, dm.age.used ) %>% 
+  select ( study, sjid, start_age, dm.age.used ) %>% 
   mutate ( dm.age.used = as.Date(dm.age.used, '%m/%d/%Y'))
 
 # datasets ----------------------------------------------------------------
@@ -55,9 +54,23 @@ visit.dates <- data.frame() %>% as_tibble()
 
 for (i in 1:length(filename_list)){
   name   <- filename_list[i]
-  ds.tmp <- .ds.CRCSCA( name, all = T, raw = T ) %>% 
+  ds.tmp <- .ds.CRCSCA( name, all = T, raw = T, raw.dates = F ) %>% 
     filter(avisit != 'PRN') 
   
+  # check what lines are completely identical
+  ds.tmp %<>%
+    mutate(
+      unique_row = !duplicated(
+        select(
+          ., 
+          -adt, -avisit, -avisitn, 
+          -visit_age, -visityear
+        ) %>%
+          relocate(study, sjid, visit_date)
+      )
+    ) %>% 
+    filter(unique_row == T)
+
   if ( !('sjid'   %in% names(ds.tmp) ) ) {next}
   if ( !('avisit' %in% names(ds.tmp) ) ) {next}
   if ( name %in% c(
@@ -105,7 +118,7 @@ visit.dates %<>%
 visit.dates %<>% 
   select(-dm.age.used)
 
-# clean -------------------------------------------------------------------
+# 1) clean -------------------------------------------------------------------
 
 # remove double entry
 visit.dates %<>% 
@@ -119,234 +132,295 @@ visit.dates %<>%
   # filter(n()>1)
   slice(1)
 
-# if multiple dates per visit, use the one with most crfs -----------------
 
-# visit.dates.unique <- 
+# GPT Cleaning ----------------------------------------------------------------
+
+# simplify visit.dates, add count by adt
+
 visit.dates %<>% 
-  group_by ( study, sjid, avisitn ) %>% 
-  # filter   ( length(unique(adt))>1 ) %>% 
-  group_by ( study, sjid, avisitn, adt ) %>% 
-  summarise( n.crf_date = length (unique(crf))) %>% 
-  group_by ( study, sjid, avisitn ) %>% 
-  # will return the first row in the current data order among those with 
-  # the maximum value.
-  arrange( study, sjid, avisitn, n.crf_date ) %>% 
-  slice_max(n.crf_date, with_ties = FALSE) %>% 
-  select(-n.crf_date)
+  select ( study, sjid, avisitn, adt, crf ) %>% 
+  group_by(study, sjid, avisitn, adt) %>%
+  mutate( n.crf_date = n_distinct(crf)) %>%
+  ungroup()
+
+# library(stringdist)
+
+# 2) correct dates with wrong avisitn. crf can not match -------------------------
+
+# ".tbc" -> to be corrected
+
+inconsistent. <- visit.dates %>%
+  # filter( sjid == 'CU-01-018-7301') %>% print(n=40)
+  rename( crf.tbc        = crf        ) %>% 
+  rename( n.crf_date.tbc = n.crf_date ) %>%
+  rename( avisitn.tbc    = avisitn    ) %>% 
+  # select( - n.crf_date ) %>%
+  left_join(
+    visit.dates,
+    by = c( 'study', 'sjid', 'adt' ),
+    relationship = "many-to-many"
+  ) %>% 
+  filter( avisitn.tbc != avisitn ) %>% 
+  filter( crf.tbc     != crf ) %>% 
+  select( -crf ) %>% 
+  # what's here needs correction
+  unique( )
+
+corrections. <- inconsistent. %>%
+  # filter( sjid %in% c('CU-01-003-7301','CU-01-032-7301') ) %>% 
+  arrange(sjid, adt) %>% 
+  group_by( sjid, adt ) %>%
+  # filter to the avisitn, with correct adt
+  filter( n.crf_date == max( n.crf_date     ) ) %>% 
+  group_by( sjid, avisitn ) %>%
+  filter( n.crf_date.tbc == min( n.crf_date.tbc ) ) %>% 
+  select( study, avisitn = avisitn.tbc, avisitn.new = avisitn, crf = crf.tbc)
+
+# apply avisitn corrections 
+
+visit.dates %<>% 
+  # filter( sjid == 'CU-01-018-7301') %>%
+  # filter( sjid == 'CU-01-003-7301') %>%
+  left_join(
+    corrections.
+    ) %>% 
+  mutate(
+    avisitn.corrected = coalesce(avisitn.new, avisitn),
+    avisitn.original  = if_else(is.na(avisitn.new), NA_real_, avisitn)
+  ) %>%
+  select(study, sjid, avisitn = avisitn.corrected, adt, crf, n.crf_date, avisitn.original)
+
+# when more than one crf per visit is created, remove the changed one
+
+visit.dates %<>% #print(n=39)
+  arrange ( study, sjid, avisitn, adt, crf, n.crf_date) %>% 
+  group_by( study, sjid, avisitn, adt, crf ) %>% 
+  mutate  ( rk = rank(crf, ties.method = 'last') ) %>% 
+  filter  ( max(rk)==1) %>% 
+  ungroup
+# %>% 
+#   filter( !is.na(avisitn.original))
+#   mutate( x = length((crf)))
+
+visit.dates %<>% 
+  select( -rk )
+
+# 3) if diff <= 31 days, use median -------------------------------------------
+unique(visit.dates$adt) %>% length
+
+visit.dates %<>%
+  group_by ( study, sjid, avisitn ) %>%
+  mutate  ( diff = as.numeric(max(adt)-min(adt))  ) %>%
+  mutate  ( adt.before_median = adt ) %>% 
+  mutate  ( adt  = if_else(diff <= 31, median(adt), adt )) %>%
+  group_by ( study, sjid, avisitn, adt  ) %>%
+  mutate  ( n.crf_date = length (unique(crf))) %>%
+  group_by ( study, sjid, avisitn  ) %>%
+  mutate  ( diff = as.numeric(max(adt)-min(adt))  )
+
+# counts ------------------------------------------------------------------
+
+.svs <- function(df) {
+  df <- df %>% ungroup()  # Ensure it's ungrouped
+  
+  tibble::tibble(
+    total_rows           = nrow(df),
+    unique_subjects      = nrow(df %>% select(study, sjid) %>% distinct()),
+    unique_visits        = nrow(df %>% select(study, sjid, avisitn) %>% distinct()),
+    unique_dates         = nrow(df %>% select(study, sjid, adt) %>% distinct()),
+    unique_crf_records   = nrow(df %>% select(study, sjid, avisitn, adt, crf) %>% distinct())
+  )
+}
+
+# figure out the rest -----------------------------------------------------
 
 
-# check <- visit.dates %>% 
-#   # filter(sjid == 'HA-01-097-7301') %>% 
-#   group_by(study, sjid, avisitn) %>% 
-#   mutate( adts_vis = length(unique(adt)) ) %>% 
-#   .gs %>% 
-#   # filter( max (adts_vis) > 1) %>% 
+library(dplyr)
+library(purrr)
+
+# --- Step 1: Identify both types of conflicts ---
+conflict_rows <- bind_rows(
+  visit.dates %>%
+    group_by(study, sjid, adt) %>%
+    filter(n_distinct(avisitn) > 1) %>%
+    ungroup() %>%
+    mutate(conflict_type = "same adt, multiple avisitn"),
+  
+  visit.dates %>%
+    group_by(study, sjid, avisitn) %>%
+    filter(n_distinct(adt) > 1) %>%
+    ungroup() %>%
+    mutate(conflict_type = "same avisitn, multiple adt")
+) %>%
+  distinct(study, sjid, avisitn, adt, crf, conflict_type)
+
+# --- Step 2: Collapse CRFs per visit entry ---
+conflict_summary <- conflict_rows %>%
+  group_by(study, sjid, avisitn, adt, conflict_type) %>%
+  summarise(
+    n_crf = n_distinct(crf),
+    distinct_crfs = list(sort(unique(crf))),
+    .groups = "drop"
+  )
+
+# --- Step 3: Compute shared CRFs across conflicting entries within same patient ---
+conflict_enriched <- conflict_summary %>%
+  mutate(group_key = if_else(conflict_type == "same adt, multiple avisitn",
+                             as.character(adt), as.character(avisitn))) %>%
+  group_by(sjid, conflict_type, group_key) %>%
+  filter(n() > 1) %>%
+  mutate(
+    shared_crfs = list(reduce(distinct_crfs, intersect)),
+    n_shared_crfs = length(shared_crfs[[1]])
+  ) %>%
+  ungroup() %>%
+  # select(-group_key) %>%   # optional: drop if not needed
+  droplevels()
+
+# --- Step 4: Make readable ---
+conflict_enriched <- conflict_enriched %>%
+  mutate(
+    distinct_crfs = sapply(distinct_crfs, function(x) paste(sort(x), collapse = ", ")),
+    shared_crfs   = sapply(shared_crfs,   function(x) paste(sort(x), collapse = ", "))
+  )
+
+# --- Step 5: Show unified result ---
+cat("\n--- Visits with conflicting AVISITNs or ADTs and shared CRFs ---\n")
+print(conflict_enriched, n = 1050)
+
+# use this to have unique avisitn/adt combinations ------------------------
+
+library(dplyr)
+
+# STEP 1: Start from combined conflict data (conflict_summary)
+conflict_resolved <- conflict_summary %>%
+  group_by(study, sjid, conflict_type, ifelse(conflict_type == "same adt, multiple avisitn", as.character(adt), as.character(avisitn))) %>%
+  slice_max(n_crf, with_ties = FALSE) %>%
+  ungroup()
+
+# STEP 2: Prepare to merge back with unaffected data
+# Create a lookup of affected sjid + adt + avisitn combinations
+affected_keys <- conflict_summary %>%
+  distinct(study, sjid, adt, avisitn)
+
+# STEP 3: Get all unaffected records from visit.dates
+unaffected <- visit.dates %>%
+  distinct(study, sjid, adt, avisitn, crf) %>%
+  anti_join(affected_keys, by = c("study", "sjid", "adt", "avisitn"))
+
+# STEP 4: Combine resolved + unaffected
+final_clean_visits <- bind_rows(
+  conflict_resolved %>%
+    select(study, sjid, adt, avisitn),  # just the unique combos to match structure
+  unaffected
+) %>%
+  arrange(study, sjid, adt, avisitn)
+
+# Optional: Add back n_crf and crf list if needed
+
+# . -----------------------------------------------------------------------
+
+final_clean_visits %>% .svs %>% .ct
+
+visit.dates <- final_clean_visits
+
+# # --- STEP 1: Prepare both datasets ---
+# original <- visit.dates %>%
+#   select(study, sjid, adt, avisitn, crf) %>%
+#   mutate(from = "original")
+# 
+# cleaned <- final_clean_visits %>%
+#   select(study, sjid, adt, avisitn, crf) %>%
+#   mutate(from = "cleaned")
+# 
+# # --- STEP 2: Stack both and identify changes ---
+# comparison <- bind_rows(original, cleaned) %>%
+#   distinct() %>%
+#   group_by(study, sjid, adt, avisitn, crf) %>%
+#   mutate(n_sources = n_distinct(from)) %>%
+#   ungroup()
+# 
+# # --- STEP 3: Filter for entries that appear only in one dataset ---
+# changes <- comparison %>%
+#   group_by(study, sjid, crf) %>%
+#   filter(n_distinct(from) == 1) %>%
+#   ungroup()
+# 
+# 
+# 
+# 
+# # --- STEP 4: Identify affected sjid/crf combos ---
+# affected_sjid_crf <- changes %>%
+#   distinct(sjid, crf)
+# 
+# # --- STEP 5A: Extract all rows for affected sjid/crf from original data ---
+# comparison %>% 
 #   left_join( 
-#     visit.dates.clean %>% 
-#       mutate(visit.clean = T) %>% 
-#       rename(adt.clean = adt)
+#     affected_sjid_crf %>% 
+#       mutate(x = 1)
 #     ) %>% 
-#   mutate( adt.old = adt ) %>% 
-#   mutate( adt = adt.clean ) %>% 
-#   .gsv() %>% 
-#   mutate( adt = mean(adt),na.rm=T)
+#   filter(x == 1) %>% 
+#   arrange
+# 
+# original_rows <-  %>%
+#   right_join(visit.dates, by = c("sjid", "crf")) %>%
+#   mutate(from = "original")
+# 
+# # --- STEP 5B: Do the same for cleaned data ---
+# cleaned_rows <- affected_sjid_crf %>%
+#   right_join(final_clean_visits, by = c("sjid", "crf")) %>%
+#   mutate(from = "cleaned")
+# 
+# # Combine
+# data_plot_combined <- bind_rows(original_rows, cleaned_rows)
+# 
+# data_plot_combined %>% 
+#   filter(sjid == 'CU-01-006-7301')
+#   ggplot(aes(x = adt, y = avisitn, color = from, shape = from)) +
+#   geom_point(size = 3, alpha = 0.9) +
+#   facet_grid(crf ~ sjid, scales = "free", space = "free") +
+#   scale_x_date(date_breaks = "1 year", date_labels = "%Y") +
+#   labs(
+#     title = "CRF-wise Changes in AVISITN Assignment by Patient",
+#     x = "Visit Date (ADT)",
+#     y = "AVISITN",
+#     color = "Dataset",
+#     shape = "Dataset"
+#   ) +
+#   theme_minimal(base_size = 13) +
+#   theme(
+#     legend.position = "bottom",
+#     axis.text.x = element_text(angle = 45, hjust = 1),
+#     strip.text.y = element_text(angle = 0)
+#   )
 
-
-# check %<>% 
-#   group_by( sjid, crf ) %>% 
-#   arrange ( sjid, crf, avisitn) %>% 
-#   mutate( lag.avisitn = avisitn - lag (avisitn) ) %>% 
-#   mutate( lag.adt     = as.numeric(adt     - lag (adt) ) ) 
+# if multiple dates per visit, use the one with most crfs -----------------
 # 
-# check %>%
-#   # filter( avisitn > 0 ) %>% 
-#   filter( min (lag.adt) < 0) %>% 
-#   print()
+# # visit.dates.unique <- 
+# visit.dates %<>% 
+#   group_by ( study, sjid, avisitn ) %>% 
+#   # filter   ( length(unique(adt))>1 ) %>% 
+#   group_by ( study, sjid, avisitn, adt ) %>% 
+#   summarise( n.crf_date = length (unique(crf))) %>% 
+#   group_by ( study, sjid, avisitn ) %>% 
+#   # will return the first row in the current data order among those with 
+#   # the maximum value.
+#   arrange( study, sjid, avisitn, n.crf_date ) %>% 
+#   slice_max(n.crf_date, with_ties = FALSE) %>% 
+#   select(-n.crf_date)
 # 
-# 
-# check %<>% 
-#   .gsv %>% 
-#   mutate(diff = adt.old - adt ) %>% 
-#   .gs %>% 
-#   mutate(diff = max(diff)) %>% 
-#   filter(diff >0 )
-# 
-# check %>% 
-#   select(sjid, avisitn, crf, diff, adt, adt.old) %>%
-#   mutate( adt.old = if_else(adt == adt.old, NA, adt.old) ) %>% 
-#   gather( dates, values, adt, adt.old) %>% 
-#   filter( !is.na(values)) %>% 
-#   filter(diff > 10, diff<60) %>% 
-#   mutate(flag = ifelse(is.na(diff), NA, T )) %>% 
-#   # print(n=80)
-#   ggplot()+geom_point()+geom_line()+
-#   aes(x = values)+aes(y = avisitn)+
-#   aes(color = dates)+
-#   facet_wrap(~sjid)
-
-
-# consider taking mean if < 30days
-# 1) make sure it is reproducible - ok
-# 2) check that at least dates  are increasint  with visit
-# 3) need to recalc ages , etc, then take care of sjids. 
-
-
-# multiple ages (now dates) only ------------------------------------------------------
-
-# mult.date.visits <- visit.dates %>% 
-#   select(-crf) %>%
-#   group_by(study, sjid, adt) %>%
-#   unique() %>% 
-#   mutate(avisit.n = length(avisit), adt.n = length(adt), avisitn.n = length(avisitn)) %>% 
-#   ungroup %>%
-#   filter( rowSums(.[c('avisit.n', 'adt.n', 'avisitn.n')]) > 3 )
-# 
-# mult.date.visits %>% select(study, sjid, avisit) %>% unique %>% nrow
-# mult.date.visits %>% select(study, sjid, adt) %>% unique %>% nrow
-# 
-# mult.date.visits$avisit.n
-# 
-# mult.date.visits %>% 
-#   group_by(study, sjid, avisit) %>% 
-#   summarise(diff.adt = as.numeric(max(adt)-min(adt))) %>% 
-#   filter (diff.adt > 0)
-# 
-# mult.date.visits %>% 
-#   group_by(study, sjid, adt) %>% 
-#   mutate( diff.visit = as.numeric(max(avisitn)-min(avisitn))) %>% 
-#   filter   ( diff.visit > 0) %>% 
-#   arrange  ( -diff.visit, sjid, avisitn )
-# 
-# visit.dates %>% 
-#   filter( sjid == 'CU-01-048-7301' ) %>% 
-#   group_by(sjid, avisitn, avisit, adt) %>% 
-#   summarise( crf = toString(na.omit(crf)) )
-#   select( -crf ) %>% unique %>% 
-#   arrange( avisitn, adt)
-
-
-# mult.date.visits %>% 
-#   unique() %>% 
-#   left_join(crf.summary, by = c('study', 'sjid', 'adt') ) %>% 
-#   arrange(sjid, avisit)
-#   
-#   # unique() %>% 
-#   # group_by(study, sjid, adt, avisit) %>%
-#   # filter(n()>1) %>% 
-#   # mutate(l = length(adt)) %>% 
-#   # filter(l > 1)
-#   # filter(length(unique(adt))>1)
-#   # filter(n()>1) %>%
-#   # arrange(sjid, avisitn, age) %>% 
-#   # mutate( diff = as.numeric(max(age)-min(age))) %>%
-#   # mutate( flagged = T ) %>% 
-#   # left_join(crf.summary)
-# 
-# # write this flag -------------------------------------------------------------
-# 
-# mult.date.visits %>% 
-#   ungroup %>% 
-#   select(study, sjid, avisit, avisitn, age, diff, flagged, n, crf) %>% 
-#   arrange(sjid, avisitn, age) %>% 
-#   .wds ('../DATA derived/CRCSCA.flag.mult.visit', add.date = T)
-# 
-# # quick summary -----------------------------------------------------------
-# 
-# mult.date.visits %>% 
-#   select(sjid, avisitn, diff) %>% 
-#   unique %>%
-#   group_by(six.months = cut(diff, c(0,31,90,180,1000,2000,3000,1000000000000000000))) %>% 
-#   summarise(n())
-# 
-# bl.ages <- visit.dates %>% 
-#   select(study, sjid, bl.age = age) %>% unique %>% 
-#   group_by(study, sjid) %>% 
-#   filter(bl.age == min(bl.age))
-# 
-# # add age deviation in days -----------------------------------------------
-# # done by crf 
-# # these are not discrepancies between CRFs, but visit window deviations!
-# 
-# age.devs.by.visit <- visit.dates %>%
-#   left_join(bl.ages) %>%
-#   ungroup %>%
-#   mutate(stdy = as.character(avisit)) %>%
-#   mutate(stdy = ifelse(stdy == 'Baseline', 0, stdy)) %>%
-#   mutate(stdy = gsub(' months', '', stdy)) %>%
-#   mutate(stdy = (as.numeric(stdy)*30.4375)) %>%
-#   mutate(vs.age = bl.age + stdy) %>%
-#   mutate(age.dev = vs.age-age)
-
-# tol <- 365.25/4
-# tol <- 0
-# 
-# age.devs.by.visit %<>% 
-#   filter(!is.na(age)) %>% 
-#   group_by(crf) %>%
-#   mutate  ( N = n()) %>% 
-#   mutate(flag.window = ifelse(abs(age.dev)>tol, F, T))
-# 
-# age.devs.by.visit %>%
-#   group_by(crf, N, flag.window) %>% 
-#   summarise(sjids = length(sjid)) %>% 
-#   spread(flag.window, sjids) %>% 
-#   mutate (pct_exl = round(100*`FALSE`/N,0))
-
-# age.devs.by.visit %>%
-#   # filter(crf %in% c('sara','functional_staging')) %>% 
-#   # spread(crf, age.dev) %>% filter(sara != functional_staging)
-#   mutate(age.dev = ifelse(age.dev>365.25*2, 365.25*2, age.dev)) %>% 
-#   mutate(age.dev = ifelse(age.dev<(-365.25*2), (-365.25*2), age.dev)) %>% 
-#   # filter(avisitn == 0, age.dev!=0) %>% group_by(sjid)
-#   mutate(flag = ifelse(abs(age.dev)>tol, T, F)) %>% 
-#   # select(-crf) %>% unique %>% 
-#   ggplot()+geom_jitter(width = .1, height = 0)+
-#   aes(x = stdy/365.25, y = age.dev/365.25)+
-#   aes(color = flag)+
-#   facet_wrap(~crf)+
-#   geom_hline(yintercept = c(-tol/365.25,0,tol/365.25), linetype = 3)
-
-# write this flag -------------------------------------------------------------
-
-# age.devs.by.visit %>% 
-#   ungroup %>% 
-#   select(study, sjid, avisit, avisitn, crf, age.dev, flag.window) %>% 
-#   arrange(sjid, avisitn, crf) %>% 
-#   .wds ('../DATA derived/CRCSCA.flag.age.off', add.date = T)
 
 # write -------------------------------------------------------------------
 
-# this only shows that some dates spread over differebt avisitns
 visit.dates %>% 
-  group_by(study, sjid, avisitn, adt) %>% 
-  summarise_all( ~toString(na.omit( paste(unique(.)) )) ) %>%
-  group_by(study, sjid, adt) %>% 
-  unique %>%
-  filter(n()>1)
-
-
-# mult.visit.per.adt <- visit.dates %>% 
-#   # filter(sjid == 'CU-01-039-7301', adt == '2020-09-01') %>%
-#   ungroup %>% 
-#   select(-avisitn) %>% 
-#   group_by(study, sjid, avisit, adt) %>% 
-#   summarise_all( ~toString(na.omit( paste(.) )) ) %>%
-#   group_by(study, sjid, adt) %>% 
-#   unique %>%
-#   filter(n()>1)
-# %>% 
-#   group_by(study, sjid, adt) %>% 
-#   group_by(study, sjid, adt) %>% 
-#   filter(n()>1) %>% 
-#   arrange(study, sjid, adt)
-
-# mult.visit.per.adt %>% 
-#   arrange(adt, sjid) %>% 
-#   .ct
-
-
-
-visit.dates %>% 
-  arrange(sjid, avisitn, adt) %>% 
+  select(-crf) %>% unique %>% 
+  .gs %>% 
+  left_join(
+    ages.CRCSCA %>% 
+      select( sjid, age_bl = start_age )
+  ) %>% 
+  mutate( time. = as.numeric( adt - min(adt) )/365.25 ) %>% 
+  mutate( age   = age_bl + time. ) %>% 
+  arrange( sjid, avisitn, adt ) %>% 
   .wds('../DATA derived/visit.dates.CRCSCA', add.date = T)			
 
